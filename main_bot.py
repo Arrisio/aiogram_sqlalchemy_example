@@ -1,3 +1,4 @@
+import contextvars
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 from sqlalchemy.orm import sessionmaker
@@ -25,6 +26,8 @@ from loguru import logger
 from models import User
 from settings import Settings
 
+db_session = contextvars.ContextVar('db_session')
+user_ctx = contextvars.ContextVar('user_ctx')
 
 def setup_middleware(dp: Dispatcher):
     dp.middleware.setup(CommonMiddleware())
@@ -39,9 +42,10 @@ class CommonMiddleware(BaseMiddleware):
     async def on_pre_process_message(self, message: types.Message, data: dict):
         async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
         session = async_session()
+        db_session.set(session)
         await session.begin()
 
-        result = await session.execute(select(User))
+        result = await session.execute(select(User).where(User.tg_id==message.from_user.id))
         if not (user := result.scalars().first()):
             user = User(
                 tg_id=message.from_user.id, user_name=message.from_user.username
@@ -49,7 +53,7 @@ class CommonMiddleware(BaseMiddleware):
             session.add(user)
             await session.commit()
 
-
+        user_ctx.set(user)
         logger_ = logger.bind(
             user_id=message.from_user.id,
             username=message.from_user.username,
@@ -57,9 +61,8 @@ class CommonMiddleware(BaseMiddleware):
         )
         logger_.info("income message")
 
-        Bot.set_current(AsyncSession, session)
         data["logger"] = logger_
-        data["user"] = user
+        # data["user"] = user
         # data["session"] = session
 
     async def on_pre_process_callback_query(
@@ -70,7 +73,8 @@ class CommonMiddleware(BaseMiddleware):
     async def on_post_process_message(
         self, message: types.Message, results, data: dict
     ):
-        session = data["session"]
+        session = db_session.get()
+        # session = data["session"]
         await session.commit()
         await session.close()
         logger.debug("finish")
@@ -92,9 +96,12 @@ cb_goto_main_menu = "goto_main_menu"
 
 
 @dp.message_handler(CommandStart(), state="*")
-async def handle_start(message: types.Message, user: User,  state: FSMContext):
+async def handle_start(message: types.Message,
+                       # user: User,
+                       state: FSMContext):
     await state.finish()
-    session = dp.get_current(AsyncSession)
+    session = db_session.get()
+    user = user_ctx.get()
     user.counter += 1
     await session.commit()
 
