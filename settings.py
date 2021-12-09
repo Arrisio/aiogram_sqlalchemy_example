@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     TG_BOT_TOKEN: str
     TG_BOT_ADMIN_ID: str
 
+    SENTRY_URL: str = ""
+
     LOGURU_FORMAT = "<level>{level: <8} {time:YYYY-MM-DD HH:mm:ss}</level>|<cyan>{name:<12}</cyan>:<cyan>{function:<24}</cyan>:<cyan>{line}</cyan> - <level>{message:>32}</level>|{extra}"
     class Config:
         env_file: str = ".env" if os.path.exists(".env") else "../.env"
