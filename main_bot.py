@@ -12,7 +12,7 @@ from aiogram.types import LabeledPrice
 from aiogram import Dispatcher, Bot, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import CommandStart
+from aiogram.dispatcher.filters import CommandStart, BoundFilter
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.types import (
     CallbackQuery,
@@ -32,6 +32,13 @@ user_ctx = contextvars.ContextVar('user_ctx')
 def setup_middleware(dp: Dispatcher):
     dp.middleware.setup(CommonMiddleware())
 
+class IsUserNotAuthorized(BoundFilter):
+    async def check(self, message: types.Message) -> bool:
+        logger.debug("start filtering IsUserNotAuthorized", tg_id=message.chat.id)
+        session = db_session.get()
+        result = await session.execute(select(User).where(User.tg_id==message.from_user.id))
+
+        return result
 
 def setup_filters(dp: Dispatcher):
     # dp.filters_factory.bind(IsUserNotAuthorized)
@@ -95,7 +102,7 @@ cb_add_to_cart = CallbackData("add_to_cart", "pizza_id")
 cb_goto_main_menu = "goto_main_menu"
 
 
-@dp.message_handler(CommandStart(), state="*")
+@dp.message_handler(CommandStart(), IsUserNotAuthorized())
 async def handle_start(message: types.Message,
                        # user: User,
                        state: FSMContext):
@@ -110,6 +117,9 @@ async def handle_start(message: types.Message,
         f"{user.user_name} написал {message.text} \n counter: {user.counter}"
     )
 
+@dp.message_handler(CommandStart())
+async def handle_start(message: types.Message):
+    await message.answer('not authorized -you should never see this message')
 
 @dp.callback_query_handler(text=cb_goto_main_menu)
 async def show_pizza_list_cb(call: CallbackQuery, state: FSMContext):
